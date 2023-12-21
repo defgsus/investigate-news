@@ -6,6 +6,7 @@ export/
 .ipynb_checkpoints/
 data/
 cache/
+.env
 
 .idea/
 *.iml
