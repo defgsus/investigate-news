@@ -28,7 +28,10 @@ class TMDB:
         }
 
     def get_movie(self, id: int) -> dict:
-        return self.get_json(f"3/movie/{id}", params={"append_to_response": "credits"})
+        return self.get_json(
+            f"3/movie/{id}",
+            params={"append_to_response": "credits,keywords"}
+        )
 
     def iter_movie_ids(self, date: datetime.date, adult: bool = False) -> Generator[dict, None, None]:
         filename = self.get_file(f"p/exports/{'adult_' if adult else ''}movie_ids_{date.month:02}_{date.day:02}_{date.year:04}.json.gz")
