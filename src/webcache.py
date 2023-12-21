@@ -2,6 +2,7 @@ import os
 import sys
 import hashlib
 import pickle
+import time
 from pathlib import Path
 from typing import Optional, Union
 
@@ -16,12 +17,15 @@ class WebCache:
             headers: Optional[dict] = None,
             timeout: int = 5,
             verbose: bool = False,
+            requests_per_second: Optional[int] = None,
     ):
         import plyvel
 
         self.path = Path(path)
         self.timeout = timeout
         self.verbose = verbose
+        self.requests_per_second = requests_per_second
+        self._last_request_time = 0
         self.session = requests.Session()
         self.session.headers = {
             "user-agent": "github.com/defgsus/sponso",
@@ -54,6 +58,15 @@ class WebCache:
         kwargs.setdefault("timeout", self.timeout)
         if self.verbose:
             print(f"requesting {method} {url} {kwargs}", file=sys.stderr)
+
+        if self.requests_per_second is not None:
+            wait_time = 1. / self.requests_per_second
+            cur_time = time.time()
+            if cur_time - self._last_request_time < wait_time:
+                time.sleep(wait_time - (cur_time - self._last_request_time))
+
+            self._last_request_time = cur_time
+
         response = self.session.request(method, url, **kwargs)
         self.num_requests += 1
 

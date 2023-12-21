@@ -20,7 +20,7 @@ class Arxiv:
         if isinstance(cache, WebCache):
             self.cache = cache
         else:
-            self.cache = WebCache(path=cache)
+            self.cache = WebCache(path=cache, requests_per_second=1)
         self.verbose = verbose
         self._db = None
 
