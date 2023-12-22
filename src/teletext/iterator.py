@@ -48,7 +48,7 @@ class TeletextIterator:
             if self.verbose:
                 commit_iterable = tqdm(
                     commit_iterable,
-                    desc=f"commits",
+                    desc=f"{repo.path} commits",
                     total=repo.num_commits(self.SNAPSHOT_PATH),
                 )
 
