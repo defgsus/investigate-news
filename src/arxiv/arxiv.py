@@ -1,3 +1,6 @@
+import json
+import sys
+import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from typing import Union, Optional
@@ -20,7 +23,7 @@ class Arxiv:
         if isinstance(cache, WebCache):
             self.cache = cache
         else:
-            self.cache = WebCache(path=cache, requests_per_second=1)
+            self.cache = WebCache(path=cache, requests_per_second=1. / 3.5)
         self.verbose = verbose
         self._db = None
 
@@ -77,23 +80,38 @@ class Arxiv:
             sort_order: 'Literal["ascending", "descending"]' = "ascending",
             store: bool = False,
     ):
-        response = self.cache.get(
-            "https://export.arxiv.org/api/query",
-            params={
-                "search_query": query,
-                "start": start,
-                "max_results": max_results,
-                "sortBy": sort_by,
-                "sortOrder": sort_order,
-            }
-        )
-        if response.status_code != 200:
-            raise RuntimeError(f"Got status {response.status_code} for {response.request.url}")
+        cache_mode = "rw"
+        while True:
+            response = self.cache.get(
+                "https://export.arxiv.org/api/query",
+                params={
+                    "search_query": query,
+                    "start": start,
+                    "max_results": max_results,
+                    "sortBy": sort_by,
+                    "sortOrder": sort_order,
+                },
+                cache_mode=cache_mode,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"Got status {response.status_code} from {response.request.url}")
 
-        response = self._xml_to_json(response.text)
+            response = self._xml_to_json(response.text)
 
-        if "entry" in response and not isinstance(response["entry"], list):
-            response["entry"] = [response["entry"]]
+            if "entry" in response and not isinstance(response["entry"], list):
+                response["entry"] = [response["entry"]]
+
+            num_entries = len(response["entry"]) if response.get("entry") else 0
+            total_entries = int(response["totalResults"]["text"])
+            if start < total_entries and not num_entries:
+                cache_mode = "w"
+                if self.verbose:
+                    print(f"Got empty response with totalResults={total_entries}, start={start}. Retrying in 5 sec..", file=sys.stderr)
+                time.sleep(5.)
+                # raise RuntimeError(f"Got empty response from arxiv.org:\n{json.dumps(response, indent=2)}")
+
+            else:
+                break
 
         #if store and response.get("entry"):
         #    for entry in response["entry"]:

@@ -106,4 +106,4 @@ class CalcDict(dict):
                 sorted(self, reverse=reverse),
                 key=sort_key or self._default_sort_key, reverse=reverse
         )[:limit]:
-            print(f"{key:30} {self[key]:.5f}", file=file)
+            print(f"{str(key):30} {self[key]:.5f}", file=file)
