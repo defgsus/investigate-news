@@ -1,12 +1,13 @@
 import pickle
 from pathlib import Path
 from copy import deepcopy
-from typing import Set, Iterable, Dict, Tuple, Optional, Callable, Union, BinaryIO
+from typing import Set, Iterable, Dict, Tuple, Optional, Callable, Union, BinaryIO, TextIO
 
+from ..mixin import StateDictMixin
 from .calcdict import CalcDict
 
 
-class TokenGraph:
+class TokenGraph(StateDictMixin):
 
     DEFAULT_VERTEX = {
         "count": 0,
@@ -34,6 +35,11 @@ class TokenGraph:
     def __copy__(self):
         return self.copy()
 
+    def __contains__(self, token_or_edge: Union[str, Tuple[str, str]]):
+        if isinstance(token_or_edge, str):
+            return token_or_edge in self.vertices
+        return token_or_edge in self.edges
+
     def copy(self) -> "TokenGraph":
         instance = TokenGraph(directed=self.directed, allow_self_reference=self.allow_self_reference)
         instance.num_all_tokens = self.num_all_tokens
@@ -42,8 +48,8 @@ class TokenGraph:
         instance.edges = deepcopy(self.edges)
         return instance
 
-    def to_pickle(self, file: Union[str, Path, BinaryIO]):
-        data = {
+    def state_dict(self) -> dict:
+        return {
             "directed": self.directed,
             "allow_self_reference": self.allow_self_reference,
             "num_all_tokens": self.num_all_tokens,
@@ -51,20 +57,9 @@ class TokenGraph:
             "vertices": self.vertices,
             "edges": self.edges,
         }
-        if isinstance(file, (str, Path)):
-            with open(file, "wb") as fp:
-                pickle.dump(data, fp)
-        else:
-            pickle.dump(data, file)
 
     @classmethod
-    def from_pickle(cls, file: Union[str, Path, BinaryIO]) -> "TokenGraph":
-        if isinstance(file, (str, Path)):
-            with open(file, "rb") as fp:
-                data = pickle.load(fp)
-        else:
-            data = pickle.load(file)
-
+    def from_state_dict(cls, data: dict):
         instance = cls(
             directed=data["directed"],
             allow_self_reference=data["allow_self_reference"],
@@ -109,9 +104,17 @@ class TokenGraph:
                 edge["count"] += 1
                 self.num_all_edges += 1
 
+    def remove_tokens(self, tokens: Iterable[str]):
+        for tok in tokens:
+            self.vertices.pop(tok, None)
+
+        self._remove_edges_without_vertex()
+        self._update_num_all()
+
     def info(self) -> dict:
         min_v, max_v = self.vertices_count_min_max()
         min_e, max_e = self.edges_count_min_max()
+        min_d, max_d = self.degree_min_max()
         return {
             "vertices": len(self.vertices),
             "edges": len(self.edges),
@@ -119,6 +122,8 @@ class TokenGraph:
             "vertices_count_max": max_v,
             "edges_count_min": min_e,
             "edges_count_max": max_e,
+            "degree_min": min_d,
+            "degree_max": max_d,
         }
 
     def vertices_count_min_max(self) -> Tuple[int, int]:
@@ -139,11 +144,45 @@ class TokenGraph:
                 max_e = e["count"]
         return min_e, max_e
 
-    def num_edges_per_vertex(self) -> Dict[str, int]:
-        result = {key: 0 for key in self.vertices.keys()}
-        for a, b in self.edges.keys():
-            result[a] += 1
-            result[b] += 1
+    def degree_min_max(self) -> Tuple[int, int]:
+        min_e, max_e = None, None
+        for e in self.degree().values():
+            if min_e is None or e < min_e:
+                min_e = e
+            if max_e is None or e > max_e:
+                max_e = e
+        return min_e, max_e
+
+    def degree(self) -> CalcDict:
+        return self._degree(self.vertices, self.edges, None)
+
+    def degree_in(self) -> CalcDict:
+        return self._degree(self.vertices, self.edges, None)
+
+    def degree_out(self) -> CalcDict:
+        return self._degree(self.vertices, self.edges, None)
+
+    @classmethod
+    def _degree(
+            cls,
+            vertices: Dict[str, dict],
+            edges: Dict[Tuple[str, str], dict],
+            in_out: Optional[bool],
+    ) -> CalcDict:
+        result = CalcDict({key: 0 for key in vertices.keys()})
+        if in_out is None:
+            for a, b in edges.keys():
+                result[a] += 1
+                result[b] += 1
+
+        elif in_out is True:
+            for a, b in edges.keys():
+                result[b] += 1
+
+        elif in_out is False:
+            for a, b in edges.keys():
+                result[a] += 1
+
         return result
 
     def vertex_counts(self) -> CalcDict:
@@ -187,92 +226,155 @@ class TokenGraph:
             vertex_count_gte: Optional[int] = None,
             vertex_tokens: Optional[Iterable[str]] = None,
             vertex_function: Optional[Callable] = None,
-            edges_per_vertex_gte: Optional[int] = None,
+            degree_gte: Optional[int] = None,
             edge_count_gte: Optional[int] = None,
             edge_tokens: Optional[Iterable[str]] = None,
             edge_function: Optional[Callable] = None,
-            unconnected: bool = False,
             inplace: bool = False
     ) -> "TokenGraph":
-        if inplace:
-            instance = self
-        else:
-            instance = self.copy()
+        edges = self.edges
+        vertices = self.vertices
 
         if edge_count_gte is not None:
-            instance.edges = {
+            edges = {
                 key: value
-                for key, value in instance.edges.items()
+                for key, value in edges.items()
                 if value["count"] >= edge_count_gte
             }
 
         if edge_function is not None:
-            instance.edges = {
+            edges = {
                 key: value
-                for key, value in instance.edges.items()
+                for key, value in edges.items()
                 if edge_function(key, value)
             }
 
         if edge_tokens is not None:
             edge_tokens = set(edge_tokens)
-            instance.edges = {
+            edges = {
                 key: value
-                for key, value in instance.edges.items()
+                for key, value in edges.items()
                 if key[0] in edge_tokens or key[1] in edge_tokens
             }
 
         if vertex_count_gte is not None:
-            instance.vertices = {
+            vertices = {
                 key: value
-                for key, value in instance.vertices.items()
+                for key, value in vertices.items()
                 if value["count"] >= vertex_count_gte
             }
 
-        if edges_per_vertex_gte is not None:
-            counts = instance.num_edges_per_vertex()
-            instance.vertices = {
+        if degree_gte is not None:
+            counts = self._degree(vertices, edges, None)
+            vertices = {
                 key: value
-                for key, value in instance.vertices.items()
-                if counts[key] >= edges_per_vertex_gte
+                for key, value in vertices.items()
+                if counts[key] >= degree_gte
             }
 
         if vertex_tokens is not None:
             vertex_tokens = set(vertex_tokens)
-            instance.vertices = {
+            vertices = {
                 key: value
-                for key, value in instance.vertices.items()
+                for key, value in vertices.items()
                 if key in vertex_tokens
             }
 
         if vertex_function is not None:
-            instance.vertices = {
+            vertices = {
                 key: value
-                for key, value in instance.vertices.items()
+                for key, value in vertices.items()
                 if vertex_function(key, value)
             }
 
-        if unconnected:
-            connected_vertices = set()
-            for token1, token2 in instance.edges.keys():
-                connected_vertices.add(token1)
-                connected_vertices.add(token2)
-
-            instance.vertices = {
-                key: value
-                for key, value in instance.vertices.items()
-                if key in connected_vertices
-            }
-
-        instance.edges = {
+        edges = {
             key: value
-            for key, value in instance.edges.items()
-            if key[0] in instance.vertices and key[1] in instance.vertices
+            for key, value in edges.items()
+            if key[0] in vertices and key[1] in vertices
         }
 
-        instance.num_all_tokens = sum(v["count"] for v in instance.vertices.values())
-        instance.num_all_edges = sum(v["count"] for v in instance.edges.values())
+        if inplace:
+            instance = self
+        else:
+            instance = TokenGraph(
+                directed=self.directed,
+                allow_self_reference=self.allow_self_reference,
+            )
 
+        instance.vertices = vertices
+        instance.edges = edges
+        instance._update_num_all()
         return instance
+
+    def filter_repeat(
+            self,
+            vertex_count_gte: Optional[int] = None,
+            vertex_tokens: Optional[Iterable[str]] = None,
+            vertex_function: Optional[Callable] = None,
+            degree_gte: Optional[int] = None,
+            edge_count_gte: Optional[int] = None,
+            edge_tokens: Optional[Iterable[str]] = None,
+            edge_function: Optional[Callable] = None,
+            max_repetions: Optional[int] = None,
+            inplace: bool = False,
+    ) -> "TokenGraph":
+        fg1 = self
+        count = 0
+        while True:
+            fg2 = fg1.filter(
+                vertex_count_gte=vertex_count_gte,
+                vertex_tokens=vertex_tokens,
+                vertex_function=vertex_function,
+                degree_gte=degree_gte,
+                edge_count_gte=edge_count_gte,
+                edge_tokens=edge_tokens,
+                edge_function=edge_function,
+                inplace=False,
+            )
+            count += 1
+            if max_repetions is not None and count >= max_repetions:
+                break
+            if len(fg1.vertices) == len(fg2.vertices) and len(fg1.edges) == len(fg2.edges):
+                break
+            fg1 = fg2
+
+        if not inplace:
+            return fg2
+
+        self.vertices = fg2.vertices
+        self.edges = fg2.edges
+        self.num_all_tokens = fg2.num_all_tokens
+        self.num_all_edges = fg2.num_all_edges
+        return self
+
+    def _update_num_all(self):
+        self.num_all_tokens = sum(v["count"] for v in self.vertices.values())
+        self.num_all_edges = sum(v["count"] for v in self.edges.values())
+
+    def _remove_edges_without_vertex(self):
+        self.edges = {
+            key: value
+            for key, value in self.edges.items()
+            if key[0] in self.vertices and key[1] in self.vertices
+        }
+
+    def dump(
+            self,
+            limit: int = 50,
+            sort_key: Optional[Callable] = None,
+            reverse: bool = True,
+            file: Optional[TextIO] = None,
+    ):
+        info = self.info()
+        max_len = max(len(key) for key in info.keys())
+        for key, value in info.items():
+            if isinstance(value, int):
+                value = f"{value:,}"
+            print(f"{key:{max_len}}: {value}", file=file)
+        print("vertex frequencies:", file=file)
+        self.vertex_frequencies().dump(limit=limit, sort_key=sort_key, reverse=reverse, file=file)
+        print("edge frequencies:", file=file)
+        self.edge_frequencies().dump(limit=limit, sort_key=sort_key, reverse=reverse, file=file)
 
     def to_igraph(self):
         import igraph

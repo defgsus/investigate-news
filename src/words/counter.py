@@ -2,10 +2,11 @@ import json
 from pathlib import Path
 from typing import Hashable, Dict, Tuple, Iterable, Union, Optional, Callable, List, Sequence
 
+from ..mixin import StateDictMixin
 from .calcdict import CalcDict
 
 
-class TokenCounter:
+class TokenCounter(StateDictMixin):
 
     def __init__(
             self,
@@ -37,19 +38,14 @@ class TokenCounter:
             tc.tokens[key] = tc.tokens.get(key, 0) + value
         return tc
 
-    def to_json(self, filename: Union[str, Path]):
-        Path(filename).write_text(json.dumps(
-            {
-                "num_all": self.num_all,
-                "tokens": self.tokens,
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ))
+    def state_dict(self) -> dict:
+        return {
+            "num_all": self.num_all,
+            "tokens": self.tokens,
+        }
 
     @classmethod
-    def from_json(cls, filename: Union[str, Path]) -> "TokenCounter":
-        data = json.loads(Path(filename).read_text())
+    def from_state_dict(cls, data: dict):
         return TokenCounter(**data)
 
     def add(
@@ -61,20 +57,39 @@ class TokenCounter:
         for tok in token:
             self.tokens[tok] = self.tokens.get(tok, 0) + count
         self.num_all += count_all * len(token)
+        return self
 
     def idf(self) -> CalcDict:
         return self.tokens.inverse(self.num_all)
 
     def filter(
             self,
-            tokens: Optional[Sequence[Hashable]],
+            tokens: Optional[Sequence[Hashable]] = None,
+            inplace: bool = False,
     ) -> "TokenCounter":
+        """TODO: num_all is not adjusted"""
+        new_tokens = self.tokens
+
+        if tokens is not None:
+            new_tokens = new_tokens.filtered(keys=tokens)
+
+        if inplace:
+            self.tokens = new_tokens
+            return self
+
         return TokenCounter(
-            tokens=self.tokens.filtered(keys=tokens),
+            tokens=new_tokens,
             num_all=self.num_all,
         )
 
     def dump(self, count: int = 50, sort_key: Optional[Callable] = None, file=None):
-        for key in self.sorted_keys(key=sort_key)[:count]:
-            print(f"{key:30} {self.tokens[key]:9,} ({self.freq_of(key):.5f})", file=file)
+        min_c = min(self.tokens.values())
+        max_c = max(self.tokens.values())
+        print(f"tokens / unique: {self.num_all:,} / {len(self.tokens):,}")
+        print(f"count min / max: {min_c:,} / {max_c:,}")
+
+        keys = self.sorted_keys(key=sort_key)[:count]
+        max_len = max(len(str(key)) for key in keys)
+        for key in keys:
+            print(f"{str(key):{max_len}} {self.tokens[key]:9,} ({self.freq_of(key):.5f})", file=file)
 

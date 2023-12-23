@@ -1,5 +1,5 @@
 import math
-from typing import Union, Optional, Callable, Iterable, Dict, Hashable
+from typing import Union, Optional, Callable, Iterable, Dict, Hashable, TextIO
 
 
 Number = Union[int, float]
@@ -55,6 +55,14 @@ class CalcDict(dict):
         new_dict /= other
         return new_dict
 
+    def subtracted(self, other: dict, factor: float = 1., clamp_min: float = 0.) -> "CalcDict":
+        new_dict = CalcDict()
+        for key, value in self.items():
+            value -= other.get(key, 0) * factor
+            if value >= clamp_min:
+                new_dict[key] = value
+        return new_dict
+
     def sorted(self, key: Optional[Callable] = None, reverse: bool = False) -> "CalcDict":
         return CalcDict({
             key: self[key]
@@ -101,7 +109,12 @@ class CalcDict(dict):
     def _default_sort_key(self, key):
         return self[key]
 
-    def dump(self, limit: int = 50, sort_key: Optional[Callable] = None, reverse: bool = True, file=None):
+    def dump(
+            self,
+            limit: int = 50,
+            sort_key: Optional[Callable] = None,
+            reverse: bool = True,
+            file: Optional[TextIO] = None):
         for key in sorted(
                 sorted(self, reverse=reverse),
                 key=sort_key or self._default_sort_key, reverse=reverse
