@@ -1,37 +1,45 @@
 import datetime
 import json
 import time
-import gzip
+import itertools
 
 from tqdm import tqdm
 
 from src.tmdb import TMDB
+from src.ndjson import NDJson
 
+
+def iter_movies(
+        until_date: datetime.date = datetime.date(2023, 12, 1),
+):
+    db = TMDB()
+    for movie in tqdm(itertools.chain(
+            db.iter_movie_ids(until_date, adult=True),
+            db.iter_movie_ids(until_date, adult=False)
+    )):
+        try:
+            movie = db.get_movie(movie["id"])
+        except RuntimeError as e:
+            print(e)
+
+        yield movie
 
 
 def scrape():
-    db = TMDB()
-
-    #movie = db.get_movie(11)
-    #print(json.dumps(movie, indent=2))
-
-    for movie in tqdm(db.iter_movie_ids(datetime.date(2023, 12, 1), adult=False)):
-        movie = db.get_movie(movie["id"])
+    for m in iter_movies():
         time.sleep(1. / 30.)
         #print(json.dumps(movie, indent=2))
         #break
 
 
 def export():
-    db = TMDB()
+    with NDJson("tmdb.ndjson.gz", "w") as fp:
+        for m in iter_movies():
+            fp.write(m)
 
-    with gzip.open("tmdb.ndjson.gz", "wt") as fp:
-
-        for movie in tqdm(db.iter_movie_ids(datetime.date(2023, 12, 1), adult=False)):
-            movie = db.get_movie(movie["id"])
-            fp.write(json.dumps(movie) + "\n")
 
 
 
 if __name__ == "__main__":
-    export()
+    scrape()
+    #export()

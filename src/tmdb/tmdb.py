@@ -12,6 +12,8 @@ import requests
 from decouple import config
 from tqdm import tqdm
 
+from src.ndjson import NDJson
+
 
 class TMDB:
 
@@ -36,7 +38,7 @@ class TMDB:
     def iter_movie_ids(self, date: datetime.date, adult: bool = False) -> Generator[dict, None, None]:
         filename = self.get_file(f"p/exports/{'adult_' if adult else ''}movie_ids_{date.month:02}_{date.day:02}_{date.year:04}.json.gz")
 
-        yield from self._iter_ndjson_gz(filename)
+        yield from NDJson(filename)
 
     def get_json(self, url: str, params: Optional[dict] = None) -> dict:
         hash_code = hashlib.sha384(f"{url}-{params}".encode()).hexdigest()
@@ -78,9 +80,3 @@ class TMDB:
                 fp.write(chunk)
 
         return cache_filename
-
-    def _iter_ndjson_gz(self, filename):
-        with gzip.open(filename) as fp:
-            fp_text = TextIOWrapper(fp)
-            for line in fp_text:
-                yield json.loads(line)
