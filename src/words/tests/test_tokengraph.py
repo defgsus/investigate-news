@@ -70,3 +70,14 @@ class TestTokenGraph(unittest.TestCase):
         self.assertEqual(tg.vertices, tg2.vertices)
         self.assertEqual(tg.edges, tg2.edges)
         self.assertEqual(tg.edge_frequencies(), tg2.edge_frequencies())
+
+    def test_500_export_igraph(self):
+        tg = TokenGraph()
+        tg.add_related_tokens(["a", "b", "b", "c", "c", "c"])
+
+        ig = tg.to_igraph(edge_weight=True)
+
+        self.assertAlmostEqual(
+            [0.3333333333333333, 0.5, 1.0],
+            ig.es["weight"]
+        )

@@ -376,7 +376,7 @@ class TokenGraph(StateDictMixin):
         print("edge frequencies:", file=file)
         self.edge_frequencies().dump(limit=limit, sort_key=sort_key, reverse=reverse, file=file)
 
-    def to_igraph(self):
+    def to_igraph(self, edge_weight: bool = True):
         import igraph
 
         def _check_edge_key(key: Tuple[str, str]):
@@ -395,11 +395,14 @@ class TokenGraph(StateDictMixin):
             graph.add_vertices(
                 len(self.vertices),
                 {
-                    key: [
-                        "None" if n[key] is None else n[key]
-                        for n in self.vertices.values()
-                    ]
-                    for key in self.DEFAULT_VERTEX.keys()
+                    "name": list(self.vertices.keys()),
+                    **{
+                        key: [
+                            "None" if n[key] is None else n[key]
+                            for n in self.vertices.values()
+                        ]
+                        for key in self.DEFAULT_VERTEX.keys()
+                    }
                 }
             )
             graph.vs["label"] = list(self.vertices.keys())
@@ -417,11 +420,11 @@ class TokenGraph(StateDictMixin):
                 }
             )
 
-            #max_weight = max(*graph.es["weight"])
-            #if max_weight:
-            #    graph.es["weight"] = [max(self.MIN_WEIGHT, round(w / max_weight, 4)) for w in graph.es["weight"]]
-            #else:
-            #    graph.es["weight"] = [self.MIN_WEIGHT] * len(graph.es)
+            if edge_weight:
+                _, max_count = self.edges_count_min_max()
+                max_count = max(1, max_count)  # should always be, just for safety
+
+                graph.es["weight"] = [e["count"] / max_count for e in self.edges.values()]
 
         return graph
 
